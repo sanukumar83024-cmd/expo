@@ -938,7 +938,7 @@ export async function setupE2EAppAsync(
 ) {
   await copyCommonFixturesToProject(
     projectRoot,
-    ['tsconfig.json', '.env', 'eas.json', 'maestro', 'includedAssets', 'scripts'],
+    ['tsconfig.json', '.env', 'eas.json', 'maestro', 'includedAssets', 'scripts', 'pnpm-workspace.yaml'],
     { appJsFileName: 'App.tsx', repoRoot, isTV }
   );
 }
