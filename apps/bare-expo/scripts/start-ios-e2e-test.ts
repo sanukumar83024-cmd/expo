@@ -52,6 +52,7 @@ const __dirname = dirname(__filename);
 
       await startSimulatorAsync(deviceId);
       await installAppAsync(deviceId, appBinaryPath);
+      await injectDylibAsync(deviceId);
 
       await runCustomMaestroFlowsAsync(e2eDir, 'ios', (maestroFlowFilePath) =>
         testAsync(maestroFlowFilePath, deviceId, e2eDir)
@@ -195,6 +196,19 @@ async function installAppAsync(deviceId: string, appBinaryPath: string): Promise
   await spawnAsync('xcrun', ['simctl', 'install', deviceId, appBinaryPath], { stdio: 'inherit' });
 }
 
+async function injectDylibAsync(deviceId: string): Promise<void> {
+  const dylibPath = getDylibPath();
+  console.log(`\n💉 Injecting dylib via simulator env - dylibPath[${dylibPath}]`);
+  // Setting DYLD_INSERT_LIBRARIES in the simulator's launchd environment makes every subsequent
+  // app launch on the simulator inherit it — including launches Maestro initiates through XCUITest
+  // (which our own `simctl launch ... SIMCTL_CHILD_DYLD_INSERT_LIBRARIES=...` env doesn't reach).
+  await spawnAsync(
+    'xcrun',
+    ['simctl', 'spawn', deviceId, 'launchctl', 'setenv', 'DYLD_INSERT_LIBRARIES', dylibPath],
+    { stdio: 'inherit' }
+  );
+}
+
 async function testAsync(
   maestroFlowFilePath: string,
   deviceId: string,
@@ -204,21 +218,13 @@ async function testAsync(
   const stopLogCollectionController = new AbortController();
 
   try {
-    // Launch app with dylib injected. Maestro will terminate-and-relaunch the app for each
-    // `maestro test` invocation, so the dylib has to be re-injected per flow.
-    const dylibPath = getDylibPath();
-    console.log(`\n💉 Launching app with dylib injected - dylibPath[${dylibPath}]`);
-
+    // Pre-launch the app so Maestro doesn't pay the cold-launch cost. The dylib is already
+    // injected at the simulator level (see `injectDylibAsync`), so it gets loaded automatically.
+    console.log(`\n💉 Pre-launching app`);
     try {
-      await spawnAsync('xcrun', ['simctl', 'launch', deviceId, APP_ID], {
-        stdio: 'inherit',
-        env: {
-          ...process.env,
-          SIMCTL_CHILD_DYLD_INSERT_LIBRARIES: dylibPath,
-        },
-      });
+      await spawnAsync('xcrun', ['simctl', 'launch', deviceId, APP_ID], { stdio: 'inherit' });
     } catch (error: any) {
-      console.warn('⚠️  App launch with dylib failed:', error.message);
+      console.warn('⚠️  App pre-launch failed:', error.message);
     }
 
     const getTestSuiteLogs = setupLogger(
